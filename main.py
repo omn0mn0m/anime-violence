@@ -113,6 +113,12 @@ def load_and_prepare_data(filepath):
 # =======================================
 # Statistical Analysis Functions
 # =======================================
+def get_descriptive_stats(dataframe):
+    """Calculates descriptive statistics, exploding list columns."""
+    list_cols = [c for c in dataframe.columns if dataframe[c].apply(isinstance, args=(list,)).any()]
+    direct_stats = dataframe.drop(columns=list_cols).describe(include='all')
+    exploded_stats = pd.DataFrame({c: dataframe[c].explode().describe(include='all') for c in list_cols})
+    return pd.concat([direct_stats, exploded_stats], axis=1)
 
 def _prepare_categorical_data_for_analysis(episode_data, column_name):
     """Prepares categorical data by grouping infrequent categories into 'Other'."""
@@ -288,6 +294,8 @@ def run_analysis(raw_data, episode_data):
     print("\n--- Running All Analyses ---")
     all_results = {}
     all_results['icc'] = calculate_icc(raw_data)
+
+    all_results['descriptive'] = get_descriptive_stats(raw_data)
     
     for cat_col in CATEGORICAL_METADATA:
         prepared_df = _prepare_categorical_data_for_analysis(episode_data, cat_col)
@@ -399,7 +407,11 @@ def write_raw_results_to_excel(results, prepared_data):
             if col in data_to_write.columns and not data_to_write[col].dropna().empty:
                 data_to_write[col] = data_to_write[col].apply(lambda x: ', '.join(x) if isinstance(x, list) else x)
         data_to_write.to_excel(writer, sheet_name='Prepared_Episode_Data', index=False)
-        
+
+        # will move to analysis function eventually
+        get_descriptive_stats(prepared_data).to_excel(writer, sheet_name='Merged Descriptive', index=False)
+
+        results['descriptive'].to_excel(writer, sheet_name='Descriptive Stats', index=False)
         results['icc'].to_excel(writer, sheet_name='Inter-Rater_Reliability_ICC', index=False)
         
         for cat in CATEGORICAL_METADATA:
