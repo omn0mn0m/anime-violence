@@ -17,7 +17,7 @@ from statsmodels.tools.sm_exceptions import HessianInversionWarning, Convergence
 # Constants & Configuration
 # =======================================
 DATA_CSV_PATH = 'data.csv'
-OUTPUT_EXCEL_PATH = 'anime_violence_analysis_results.xlsx'
+OUTPUT_EXCEL_PATH = 'Stats.xlsx'
 TABLES_OUTPUT_PATH = 'Tables.xlsx'
 FIGURES_OUTPUT_DIR = 'figures'
 ANILIST_API_URL = 'https://graphql.anilist.co'
