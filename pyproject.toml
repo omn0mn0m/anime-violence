@@ -1,0 +1,29 @@
+[project]
+name = "anime-analysis"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "certifi==2025.1.31",
+    "charset-normalizer==3.4.1",
+    "dotenv==0.9.9",
+    "et-xmlfile==2.0.0",
+    "idna==3.10",
+    "matplotlib>=3.10.6",
+    "numpy==2.2.3",
+    "openpyxl==3.1.5",
+    "pandas==2.2.3",
+    "pingouin>=0.5.5",
+    "python-dateutil==2.9.0.post0",
+    "python-dotenv==1.0.1",
+    "pytz==2025.1",
+    "requests==2.32.3",
+    "scikit-posthocs>=0.11.4",
+    "scipy==1.15.2",
+    "seaborn>=0.13.2",
+    "six==1.17.0",
+    "statsmodels>=0.14.5",
+    "tzdata==2025.1",
+    "urllib3==2.3.0",
+]
