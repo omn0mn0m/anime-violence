@@ -26,7 +26,7 @@ ANILIST_API_URL = 'https://graphql.anilist.co'
 SIGNIFICANCE_THRESHOLD = 0.05
 MIN_CATEGORY_COUNT = 10  # Min episodes to be considered a standalone category
 VIF_THRESHOLD = 10.0     # Standard threshold for detecting high multicollinearity
-MIN_NON_ZERO_FOR_REGRESSION = 5 
+MIN_NON_ZERO_FOR_REGRESSION = 5
 
 # --- Column Definitions ---
 VIOLENCE_TYPES = [
@@ -38,6 +38,18 @@ CATEGORICAL_METADATA = ['rating', 'genres', 'tags']
 CONTINUOUS_METADATA = ['averageScore', 'popularity', 'favourites', 'seasonYear']
 # A reduced predictor set for the multivariate model to avoid multicollinearity
 MULTIVARIATE_PREDICTORS = ['averageScore', 'popularity', 'seasonYear']
+
+# --- Human-Readable Names for Tables ---
+HUMAN_READABLE_NAMES = {
+    'total_violence': 'Total Violence', 'verbal': 'Verbal', 'fighting': 'Fighting',
+    'weapons': 'Weapons', 'human_torture': 'Human Torture', 'animal_torture': 'Animal Torture',
+    'violent_death': 'Violent Death', 'destruction': 'Destruction',
+    'implied_aftermath': 'Implied Aftermath', 'sexual': 'Sexual', 'terrorism': 'Terrorism',
+    'suicide': 'Suicide', 'other': 'Other', 'averageScore': 'Average Score',
+    'popularity': 'Popularity', 'favourites': 'Favourites', 'seasonYear': 'Season Year',
+    'rating': 'Rating', 'genres': 'Genres', 'tags': 'Tags'
+}
+
 
 # --- API Query ---
 GET_MEDIA_QUERY = '''
@@ -79,7 +91,7 @@ def fetch_anilist_metadata(id_list):
         except requests.exceptions.RequestException as e:
             print(f"Error fetching data from AniList API on page {page}: {e}")
             break
-            
+
     print(f"Successfully fetched metadata for {len(all_media)} series.")
     return pd.DataFrame(all_media)
 
@@ -123,7 +135,7 @@ def get_descriptive_stats(dataframe):
 def _prepare_categorical_data_for_analysis(episode_data, column_name):
     """Prepares categorical data by grouping infrequent categories into 'Other'."""
     print(f"Preparing '{column_name}' data for analysis...")
-    
+
     if not episode_data[column_name].dropna().empty and isinstance(episode_data[column_name].dropna().iloc[0], list):
         exploded_df = episode_data.dropna(subset=[column_name]).explode(column_name)
     else:
@@ -134,13 +146,13 @@ def _prepare_categorical_data_for_analysis(episode_data, column_name):
 
     counts = exploded_df[column_name].value_counts()
     categories_to_keep = counts[counts >= MIN_CATEGORY_COUNT].index
-    
+
     grouped_col_name = f'{column_name}_grouped'
     exploded_df[grouped_col_name] = exploded_df[column_name].apply(lambda x: x if x in categories_to_keep else 'Other')
     if exploded_df[grouped_col_name].nunique() < 2:
         print(f"Warning: After grouping, less than two '{column_name}' categories remain. Skipping analysis.")
         return None
-    
+
     return exploded_df
 
 def calculate_icc(raw_data):
@@ -148,7 +160,7 @@ def calculate_icc(raw_data):
     print("Calculating Inter-rater Reliability (ICC)...")
     cleaned_data = raw_data.dropna(subset=['show', 'season', 'episode', 'reviewer']).copy()
     cleaned_data['episode_id'] = cleaned_data.apply(lambda row: f"{row['show']}_s{row['season']}_e{row['episode']}", axis=1)
-    
+
     episodes_with_two_ratings = cleaned_data['episode_id'].value_counts()[lambda x: x == 2].index
     icc_data = cleaned_data[cleaned_data['episode_id'].isin(episodes_with_two_ratings)].copy()
     if icc_data.empty:
@@ -157,13 +169,13 @@ def calculate_icc(raw_data):
 
     # Rename raters generically to create a balanced dataset for the ICC function.
     icc_data['reviewer'] = 'Rater' + (icc_data.groupby('episode_id').cumcount() + 1).astype(str)
-    
+
     results = []
     for v_type in VIOLENCE_TYPES:
         try:
             iter_data = icc_data[['episode_id', 'reviewer', v_type]].dropna()
             if iter_data[v_type].nunique() < 2: raise ValueError("Outcome has zero variance")
-            
+
             icc_df = pg.intraclass_corr(data=iter_data, targets='episode_id', raters='reviewer', ratings=v_type).set_index('Type')
             icc_val = icc_df.loc['ICC2k']['ICC']
             interp = "Poor" if icc_val < 0.5 else "Moderate" if icc_val < 0.75 else "Good" if icc_val < 0.9 else "Excellent"
@@ -171,7 +183,7 @@ def calculate_icc(raw_data):
         except Exception as e:
             print(f"Warning: Could not calculate ICC for '{v_type}'. Reason: {e}")
             results.append({'Violence Type': v_type, 'ICC': None, 'Interpretation': 'Calculation failed'})
-    
+
     return pd.DataFrame(results)
 
 def run_kruskal_wallis(data, outcome_variable, grouping_variable):
@@ -179,9 +191,9 @@ def run_kruskal_wallis(data, outcome_variable, grouping_variable):
     desc = data.groupby(grouping_variable)[outcome_variable].agg(median='median', iqr=lambda x: x.quantile(0.75) - x.quantile(0.25))
     desc_row = desc.unstack().to_frame().T
     desc_row.columns = [f'{group}_{stat}' for stat, group in desc_row.columns]
-    
+
     groups = [group[outcome_variable].dropna().values for _, group in data.groupby(grouping_variable) if not group.empty]
-    if sum(1 for g in groups if pd.Series(g).nunique() > 1) < 2: return None, None 
+    if sum(1 for g in groups if pd.Series(g).nunique() > 1) < 2: return None, None
 
     try:
         stat, p_val = kruskal(*groups)
@@ -200,7 +212,7 @@ def _fit_and_extract_regression_results(model, predictor_names):
     """
     solvers = ['bfgs', 'newton'] # Primary and fallback solvers
     fitted_model = None
-    
+
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=RuntimeWarning)
         warnings.filterwarnings("ignore", category=HessianInversionWarning)
@@ -210,10 +222,10 @@ def _fit_and_extract_regression_results(model, predictor_names):
             try:
                 fitted_model = model.fit(method=solver, disp=False, maxiter=200)
                 if fitted_model.mle_retvals['converged']:
-                    break 
+                    break
             except Exception:
                 fitted_model = None
-    
+
     if fitted_model is None or not fitted_model.mle_retvals['converged']:
         return None, "Model failed to converge with all attempted solvers"
 
@@ -242,10 +254,10 @@ def run_correlation_and_regression(episode_data):
     """Runs Spearman correlation and robustly selects and fits regression models."""
     print("Running correlations and regressions...")
     spearman_results, uni_reg_results, multi_reg_results = [], [], []
-    
+
     reg_data = episode_data.copy().dropna(subset=CONTINUOUS_METADATA)
     reg_data[CONTINUOUS_METADATA] = StandardScaler().fit_transform(reg_data[CONTINUOUS_METADATA])
-    
+
     X_vif = sm.add_constant(reg_data[MULTIVARIATE_PREDICTORS])
     vif = pd.DataFrame({'VIF': [variance_inflation_factor(X_vif.values, i) for i in range(X_vif.shape[1])]}, index=X_vif.columns)
     print("Multicollinearity Check (VIF) for Multivariate Model:\n", vif)
@@ -269,7 +281,7 @@ def run_correlation_and_regression(episode_data):
 
         model_class = sm.ZeroInflatedNegativeBinomialP if (y == 0).any() else sm.NegativeBinomial
         infl_model = sm.add_constant(np.ones(len(y)), has_constant='add')
-        
+
         for pred in CONTINUOUS_METADATA:
             X_uni = sm.add_constant(reg_data[pred])
             model = model_class(y, X_uni, exog_infl=infl_model) if model_class == sm.ZeroInflatedNegativeBinomialP else model_class(y, X_uni)
@@ -296,21 +308,21 @@ def run_analysis(raw_data, episode_data):
     all_results['icc'] = calculate_icc(raw_data)
 
     all_results['descriptive'] = get_descriptive_stats(raw_data)
-    
+
     for cat_col in CATEGORICAL_METADATA:
         prepared_df = _prepare_categorical_data_for_analysis(episode_data, cat_col)
         all_results[f'{cat_col}_prepared_data'] = prepared_df
         if prepared_df is None:
             all_results[f'kruskal_wallis_{cat_col}'], all_results[f'dunn_{cat_col}'] = pd.DataFrame(), {}
             continue
-        
+
         print(f"Running Kruskal-Wallis H tests for {cat_col}...")
         kw_list, dunn_dict = [], {}
         for v_type in VIOLENCE_TYPES:
             kw_res, dunn_res = run_kruskal_wallis(prepared_df, v_type, f'{cat_col}_grouped')
             if kw_res is not None: kw_list.append(kw_res)
             if dunn_res is not None: dunn_dict[v_type] = dunn_res
-        
+
         all_results[f'kruskal_wallis_{cat_col}'] = pd.concat(kw_list, ignore_index=True) if kw_list else pd.DataFrame()
         all_results[f'dunn_{cat_col}'] = dunn_dict
 
@@ -323,20 +335,128 @@ def run_analysis(raw_data, episode_data):
 # Publication Output Functions
 # =======================================
 
-def format_correlation_for_publication(spearman_df):
+def format_p_values_for_manuscript(p_value_column):
+    """Converts a p-value column to a string, representing values < 0.001 as '< 0.001'."""
+    return p_value_column.apply(lambda p: '< 0.001' if p < 0.001 else f"{p:.3f}")
+
+def format_correlation_table(spearman_df):
     """Formats Spearman correlation results into a publication-ready matrix."""
-    if spearman_df.empty: return pd.DataFrame()
+    if spearman_df.empty: return None
     p_to_asterisks = lambda p: '***' if p < 0.001 else '**' if p < 0.01 else '*' if p < 0.05 else ''
     spearman_df['formatted'] = spearman_df.apply(lambda r: f"{r['Rho']:.2f}{p_to_asterisks(r['P-Value'])}", axis=1)
-    return spearman_df.pivot_table(index='Violence Type', columns='Predictor', values='formatted', aggfunc='first')[CONTINUOUS_METADATA]
+    pivot = spearman_df.pivot_table(index='Violence Type', columns='Predictor', values='formatted', aggfunc='first')[CONTINUOUS_METADATA]
+    pivot.rename(columns=HUMAN_READABLE_NAMES, index=HUMAN_READABLE_NAMES, inplace=True)
+    sheet_name = "Spearman Correlation"
+    return (sheet_name, pivot)
 
-def format_regression_for_publication(regression_df, predictors):
+def format_regression_table(regression_df, predictors, title):
     """Formats regression results into a publication-ready table."""
-    if regression_df.empty: return pd.DataFrame()
+    if regression_df.empty: return None
     p_to_asterisks = lambda p: '***' if p < 0.001 else '**' if p < 0.01 else '*' if p < 0.05 else ''
     regression_df['formatted'] = regression_df.apply(lambda r: f"{r['IRR']:.2f} ({r['IRR CI Lower']:.2f}-{r['IRR CI Upper']:.2f}){p_to_asterisks(r['P-Value'])}", axis=1)
     pivot = regression_df.pivot_table(index='Violence Type', columns='Predictor', values='formatted', aggfunc='first')
-    return pivot[predictors]
+    pivot = pivot[predictors] # Ensure column order
+    pivot.rename(columns=HUMAN_READABLE_NAMES, index=HUMAN_READABLE_NAMES, inplace=True)
+    return (title, pivot)
+
+def format_descriptive_table(prepared_df, cat_col, episode_data):
+    """Creates a publication-ready descriptive statistics table in a long format."""
+    if prepared_df is None or prepared_df.empty: return None
+    
+    group_col = f'{cat_col}_grouped'
+    cat_col_hr = HUMAN_READABLE_NAMES.get(cat_col, cat_col)
+    
+    all_descriptives = []
+    top_5_violence = episode_data[VIOLENCE_TYPES].sum().nlargest(5).index
+
+    for v_type in top_5_violence:
+        desc = prepared_df.groupby(group_col)[v_type].agg(
+            N=('count'),
+            Median=('median'),
+            IQR=lambda x: x.quantile(0.75) - x.quantile(0.25)
+        ).reset_index()
+        desc['Violence Type'] = HUMAN_READABLE_NAMES.get(v_type, v_type)
+        all_descriptives.append(desc)
+    
+    summary_table = pd.concat(all_descriptives, ignore_index=True)
+    summary_table.rename(columns={group_col: 'Category'}, inplace=True)
+    
+    # Reorder and style
+    summary_table = summary_table[['Violence Type', 'Category', 'N', 'Median', 'IQR']]
+    summary_table.sort_values(by=['Violence Type', 'Category'], inplace=True)
+    summary_table.loc[summary_table.duplicated(subset=['Violence Type']), 'Violence Type'] = ''
+    
+    # Add a header row for the main category
+    final_df = pd.DataFrame([f"Descriptive Statistics by {cat_col_hr}"], columns=[summary_table.columns[0]])
+    final_df = pd.concat([final_df, summary_table], ignore_index=True)
+    
+    sheet_name = f"Desc - {cat_col_hr}"
+    return (sheet_name, final_df.round(2))
+
+
+def format_kruskal_wallis_table(kw_results_df, prepared_df, cat_col):
+    """Formats Kruskal-Wallis results into a publication-ready table with effect size."""
+    if kw_results_df.empty or prepared_df is None: return None
+
+    cat_col_hr = HUMAN_READABLE_NAMES.get(cat_col, cat_col)
+    group_col = f'{cat_col}_grouped'
+    
+    # Calculate eta squared effect size
+    n = len(prepared_df)
+    k = prepared_df[group_col].nunique()
+    kw_results_df['Eta Squared'] = (kw_results_df['Statistic'] - k + 1) / (n - k)
+    
+    df = kw_results_df[['Violence Type', 'Statistic', 'P-Value', 'Eta Squared']].copy()
+    df.rename(columns={
+        'Statistic': 'H-statistic',
+        'P-Value': 'p-value'
+    }, inplace=True)
+
+    df['p-value'] = format_p_values_for_manuscript(df['p-value'])
+    df['Violence Type'] = df['Violence Type'].map(HUMAN_READABLE_NAMES)
+    df = df.round({'H-statistic': 3, 'Eta Squared': 3})
+    
+    # Add category column for grouping
+    df['Category'] = cat_col_hr
+    df = df[['Category', 'Violence Type', 'H-statistic', 'p-value', 'Eta Squared']]
+    
+    sheet_name = f"Kruskal-Wallis - {cat_col_hr}"
+    return (sheet_name, df)
+
+def format_dunn_table(dunn_results_dict, cat_col):
+    """Formats significant Dunn's Post-Hoc results into a single, grouped table."""
+    if not dunn_results_dict: return None
+    
+    cat_col_hr = HUMAN_READABLE_NAMES.get(cat_col, cat_col)
+    all_significant = []
+
+    for v_type, dunn_df in dunn_results_dict.items():
+        # Melt the upper triangle of the p-value matrix to avoid duplicate pairs
+        mask = np.triu(np.ones_like(dunn_df, dtype=bool), k=1)
+        upper_triangle_df = dunn_df.where(mask)
+        melted = upper_triangle_df.reset_index().melt(id_vars='index', var_name='Comparison Group 2', value_name='p-value')
+        melted.dropna(subset=['p-value'], inplace=True)
+        melted.rename(columns={'index': 'Comparison Group 1'}, inplace=True)
+        
+        significant = melted[melted['p-value'] < SIGNIFICANCE_THRESHOLD].copy()
+        if not significant.empty:
+            significant['Violence Type'] = HUMAN_READABLE_NAMES.get(v_type, v_type)
+            all_significant.append(significant)
+
+    if not all_significant: return None
+
+    final_table = pd.concat(all_significant, ignore_index=True)
+    final_table['p-value'] = format_p_values_for_manuscript(final_table['p-value'])
+    final_table['Category'] = cat_col_hr
+    
+    # Reorder and style
+    final_table = final_table[['Category', 'Violence Type', 'Comparison Group 1', 'Comparison Group 2', 'p-value']]
+    final_table.sort_values(by=['Category', 'Violence Type', 'Comparison Group 1'], inplace=True)
+    final_table.loc[final_table.duplicated(subset=['Category']), 'Category'] = ''
+    final_table.loc[final_table.duplicated(subset=['Category', 'Violence Type']), 'Violence Type'] = ''
+
+    sheet_name = f"Dunn Post-Hoc - {cat_col_hr}"
+    return (sheet_name, final_table)
 
 def generate_visualizations(episode_data, analysis_results):
     """Generates and saves all plots for the analysis."""
@@ -356,7 +476,7 @@ def generate_visualizations(episode_data, analysis_results):
     for cat in ['rating', 'genres']:
         df = analysis_results.get(f'{cat}_prepared_data')
         if df is None or df.empty: continue
-        
+
         print(f"Generating boxplots for {cat}...")
         group_col = f'{cat}_grouped'
         order = df[group_col].value_counts().index
@@ -368,33 +488,41 @@ def generate_visualizations(episode_data, analysis_results):
             plt.xticks(rotation=45, ha='right'); plt.tight_layout()
             plt.savefig(os.path.join(FIGURES_OUTPUT_DIR, f'boxplot_{cat}_{v_type}.png'), dpi=300)
             plt.close()
-            
+
     print("All visualizations have been saved.")
 
 def write_publication_tables(episode_data, analysis_results):
     """Writes publication-ready summary tables to a separate Excel file."""
     print(f"\n--- Writing Publication Tables to {TABLES_OUTPUT_PATH} ---")
+
+    tables_to_write = []
+
+    # Descriptive, Kruskal-Wallis, and Dunn's tables for each categorical variable
+    for cat in CATEGORICAL_METADATA:
+        prepared_df = analysis_results.get(f'{cat}_prepared_data')
+        kw_df = analysis_results.get(f'kruskal_wallis_{cat}')
+        dunn_dict = analysis_results.get(f'dunn_{cat}')
+        
+        tables_to_write.append(format_descriptive_table(prepared_df, cat, episode_data))
+        tables_to_write.append(format_kruskal_wallis_table(kw_df, prepared_df, cat))
+        tables_to_write.append(format_dunn_table(dunn_dict, cat))
+
+    # Correlation and Regression tables
+    tables_to_write.append(format_correlation_table(analysis_results['spearman']))
+    tables_to_write.append(format_regression_table(analysis_results['reg_uni'], CONTINUOUS_METADATA, "Regression - Univariate"))
+    tables_to_write.append(format_regression_table(analysis_results['reg_multi'], MULTIVARIATE_PREDICTORS, "Regression - Multivariate"))
+
     with pd.ExcelWriter(TABLES_OUTPUT_PATH) as writer:
-        for cat in CATEGORICAL_METADATA:
-            df = analysis_results.get(f'{cat}_prepared_data')
-            if df is None or df.empty: continue
-
-            group_col = f'{cat}_grouped'
-            n_counts = df.groupby(group_col).size().to_frame('N (Episodes)')
-            summary_dfs = [n_counts]
-            for v_type in episode_data[VIOLENCE_TYPES].sum().nlargest(5).index:
-                desc = df.groupby(group_col)[v_type].agg(median='median', iqr=lambda x: x.quantile(0.75) - x.quantile(0.25)).round(2)
-                v_type_clean = v_type.replace('_', ' ').title()
-                desc.columns = [f"{v_type_clean} Median", f"{v_type_clean} IQR"]
-                summary_dfs.append(desc)
-            
-            summary_table = pd.concat(summary_dfs, axis=1).sort_values(by='N (Episodes)', ascending=False)
-            summary_table.index.name = cat.capitalize()
-            summary_table.to_excel(writer, sheet_name=f'Desc - {cat.capitalize()}')
-
-        format_correlation_for_publication(analysis_results['spearman']).to_excel(writer, sheet_name='Spearman Correlation')
-        format_regression_for_publication(analysis_results['reg_uni'], CONTINUOUS_METADATA).to_excel(writer, sheet_name='Regression - Univariate')
-        format_regression_for_publication(analysis_results['reg_multi'], MULTIVARIATE_PREDICTORS).to_excel(writer, sheet_name='Regression - Multivariate')
+        # Iterate through the list of (sheet_name, dataframe) tuples
+        for item in tables_to_write:
+            # Check that the item is not None before unpacking
+            if item is not None:
+                sheet_name, table = item
+                if table is not None and not table.empty:
+                    # **THE FIX IS HERE:** Conditionally set whether to write the index.
+                    # Pivot tables like Regression and Correlation need their index.
+                    include_index = True if sheet_name.startswith(('Regression', 'Spearman')) else False
+                    table.to_excel(writer, sheet_name=sheet_name, index=include_index)
 
     print(f"Publication-ready tables have been saved to {TABLES_OUTPUT_PATH}")
 
@@ -408,19 +536,16 @@ def write_raw_results_to_excel(results, prepared_data):
                 data_to_write[col] = data_to_write[col].apply(lambda x: ', '.join(x) if isinstance(x, list) else x)
         data_to_write.to_excel(writer, sheet_name='Prepared_Episode_Data', index=False)
 
-        # will move to analysis function eventually
-        get_descriptive_stats(prepared_data).to_excel(writer, sheet_name='Merged Descriptive', index=False)
-
-        results['descriptive'].to_excel(writer, sheet_name='Descriptive Stats', index=False)
+        results['descriptive'].to_excel(writer, sheet_name='Descriptive_Stats_Raw')
         results['icc'].to_excel(writer, sheet_name='Inter-Rater_Reliability_ICC', index=False)
-        
+
         for cat in CATEGORICAL_METADATA:
             if f'kruskal_wallis_{cat}' in results and not results[f'kruskal_wallis_{cat}'].empty:
                 results[f'kruskal_wallis_{cat}'].to_excel(writer, sheet_name=f'KruskalWallis_{cat.capitalize()}', index=False)
             if f'dunn_{cat}' in results:
                 for v, df in results[f'dunn_{cat}'].items():
                     df.to_excel(writer, sheet_name=f'Dunn_{cat.capitalize()}_{v[:15]}')
-        
+
         results['spearman'].to_excel(writer, sheet_name='Spearman_Correlation', index=False)
         if 'reg_uni' in results and not results['reg_uni'].empty:
             results['reg_uni'].to_excel(writer, sheet_name='Regression_Univariate', index=False)
@@ -437,11 +562,12 @@ def main():
     """Main function to run the entire analysis pipeline."""
     raw_data, episode_data = load_and_prepare_data(DATA_CSV_PATH)
     analysis_results = run_analysis(raw_data, episode_data)
-    # Ensure raw results are written before tables, which might depend on them
+    # Write raw, detailed results first
     write_raw_results_to_excel(analysis_results, episode_data)
+    # Write formatted, publication-ready tables
     write_publication_tables(episode_data, analysis_results)
+    # Generate plots and figures
     generate_visualizations(episode_data, analysis_results)
 
 if __name__ == "__main__":
     main()
-
